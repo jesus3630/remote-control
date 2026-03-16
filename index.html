@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Remote Control</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.8.0/lib/addon-fit.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2e3247;
+      --accent:   #4f8ef7;
+      --danger:   #e05c5c;
+      --success:  #4caf82;
+      --text:     #d4d8f0;
+      --muted:    #6b708a;
+      --radius:   8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- header ---- */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-size: 16px; font-weight: 600; letter-spacing: .5px; }
+    #status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--danger);
+      flex-shrink: 0;
+      transition: background .3s;
+    }
+    #status-dot.connected { background: var(--success); }
+    #status-text { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+    /* ---- layout ---- */
+    main {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      padding: 16px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ---- form elements ---- */
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .row { display: flex; gap: 8px; }
+    .row input { flex: 1; }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      white-space: nowrap;
+    }
+    button:hover  { opacity: .85; }
+    button:active { transform: scale(.97); }
+    button.danger { background: var(--danger); }
+    button.full   { width: 100%; }
+
+    /* ---- key grid ---- */
+    .key-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .key-grid button {
+      padding: 6px 10px;
+      font-size: 12px;
+      background: var(--border);
+    }
+    .key-grid button:hover { background: var(--accent); }
+
+    /* ---- terminal ---- */
+    .terminal-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #terminal {
+      flex: 1;
+      background: #090b10;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 12px;
+      overflow-y: auto;
+      line-height: 1.6;
+      min-height: 200px;
+    }
+
+    .log-cmd     { color: #7eb8f7; }
+    .log-ok      { color: var(--success); }
+    .log-output  { color: var(--text); }
+    .log-error   { color: var(--danger); }
+    .log-status  { color: var(--muted); font-style: italic; }
+    .log-screenshot { color: #b48ef4; }
+
+    /* ---- screenshot ---- */
+    #screenshot-container {
+      display: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #000;
+    }
+    #screenshot-img { width: 100%; display: block; }
+
+    /* ---- right panel ---- */
+    .right { display: flex; flex-direction: column; gap: 16px; }
+
+    /* ---- file browser ---- */
+    #fb-wrap { display:flex; flex-direction:column; gap:8px; flex:1; min-height:0; }
+    #fb-breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px;
+      font-size: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      min-height: 32px;
+    }
+    .fb-crumb {
+      color: var(--accent);
+      cursor: pointer;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .fb-crumb:hover { background: var(--border); }
+    .fb-crumb-sep { color: var(--muted); }
+
+    #fb-table-wrap {
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      min-height: 180px;
+    }
+    #fb-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    #fb-table th {
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      color: var(--muted);
+      font-weight: 600;
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+      cursor: pointer;
+    }
+    #fb-table th:hover { color: var(--text); }
+    #fb-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    #fb-table tr:last-child td { border-bottom: none; }
+    #fb-table tr.fb-row:hover td { background: var(--surface); cursor: pointer; }
+    .fb-icon { margin-right: 6px; }
+    .fb-name { color: var(--text); }
+    .fb-name.is-dir  { color: var(--accent); font-weight: 600; }
+    .fb-name.is-link { color: #b48ef4; }
+    .fb-size { color: var(--muted); text-align: right; width: 70px; }
+    .fb-date { color: var(--muted); width: 140px; }
+    .fb-perms { color: var(--muted); font-family: monospace; width: 100px; }
+    #fb-empty { color: var(--muted); font-style: italic; padding: 20px; text-align: center; }
+    #fb-loading { color: var(--muted); font-style: italic; padding: 20px; text-align: center; }
+
+    /* ---- multi-select ---- */
+    .fb-cb-cell { width: 28px; padding: 5px 6px 5px 10px !important; }
+    .fb-cb-cell input[type=checkbox] { cursor: pointer; accent-color: var(--accent); width: 14px; height: 14px; }
+    #fb-table tr.fb-row.selected td { background: rgba(79,142,247,.1); }
+    #fb-table tr.fb-row.selected:hover td { background: rgba(79,142,247,.18); }
+
+    /* batch action bar */
+    #fb-batch-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 12px;
+    }
+    #fb-batch-bar.visible { display: flex; }
+    #fb-batch-count { color: var(--accent); font-weight: 700; flex: 1; }
+    #fb-batch-bar button { padding: 4px 12px; font-size: 12px; }
+
+    /* ---- AI chat ---- */
+    #ai-panel { display:flex; flex-direction:column; gap:10px; flex:1; min-height:0; }
+    #ai-messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 120px;
+      padding: 4px 0;
+    }
+    .ai-msg { display:flex; flex-direction:column; gap:4px; max-width:92%; }
+    .ai-msg.user  { align-self: flex-end; align-items: flex-end; }
+    .ai-msg.ai    { align-self: flex-start; }
+    .ai-bubble {
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ai-msg.user .ai-bubble  { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+    .ai-msg.ai   .ai-bubble  { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+    .ai-bubble code { font-family: monospace; font-size: 12px; }
+    .ai-bubble pre  {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      overflow-x: auto;
+      margin: 6px 0;
+      font-size: 12px;
+    }
+    .ai-run-btn {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: var(--accent);
+      margin-top: 4px;
+      align-self: flex-start;
+    }
+    #ai-typing { color: var(--muted); font-size: 12px; font-style: italic; min-height: 18px; }
+    #ai-key-warn {
+      font-size: 11px; color: var(--danger);
+      background: rgba(224,92,92,.1);
+      border: 1px solid var(--danger);
+      border-radius: 6px;
+      padding: 6px 10px;
+      display: none;
+    }
+
+    /* ---- context menu ---- */
+    #ctx-menu {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(0,0,0,.5);
+      min-width: 180px;
+      padding: 4px 0;
+      font-size: 13px;
+      user-select: none;
+    }
+    #ctx-menu.open { display: block; }
+    .ctx-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      cursor: pointer;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .ctx-item:hover { background: var(--border); }
+    .ctx-item.danger:hover { background: rgba(224,92,92,.15); color: var(--danger); }
+    .ctx-item .ctx-icon { width: 16px; text-align: center; font-size: 14px; }
+    .ctx-sep { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+
+    /* ---- terminal emulator ---- */
+    #term-panel { display:flex; flex-direction:column; gap:8px; }
+    #term-container {
+      background: #0a0a0a;
+      border-radius: 6px;
+      overflow: hidden;
+      flex: 1;
+      min-height: 260px;
+    }
+    #term-container .xterm { padding: 6px; }
+    #term-status {
+      font-size: 11px;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ---- drag and drop ---- */
+    #fb-table-wrap.drag-over {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent);
+      background: rgba(79, 142, 247, 0.06);
+    }
+    #fb-drop-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(79, 142, 247, 0.12);
+      border: 2px dashed var(--accent);
+      border-radius: 6px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    #fb-drop-overlay.visible { display: flex; }
+    #fb-drop-overlay span { font-size: 28px; }
+    #fb-drop-overlay p { color: var(--accent); font-size: 14px; font-weight: 600; }
+
+    /* upload queue */
+    #fb-upload-queue {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    #fb-upload-queue.visible, #fb-download-queue.visible { display: flex; }
+    #fb-download-queue {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .uq-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .uq-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .uq-bar-wrap {
+      width: 80px; height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .uq-bar { height: 100%; width: 0%; background: var(--accent); transition: width .15s; border-radius: 4px; }
+    .uq-bar.done   { background: var(--success); }
+    .uq-bar.error  { background: var(--danger); }
+    .uq-pct { width: 32px; text-align: right; color: var(--muted); flex-shrink: 0; }
+
+    /* ---- ssh auth toggle ---- */
+    .auth-section { display: none; }
+    .auth-section.active { display: block; }
+
+    /* ---- tab strip ---- */
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .tab {
+      padding: 5px 14px;
+      border-radius: 6px 6px 0 0;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+    }
+    .tab.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 14px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div id="status-dot"></div>
+  <h1>Remote Control</h1>
+  <span id="status-text">Connecting...</span>
+</header>
+
+<main>
+  <!-- ===== LEFT PANEL ===== -->
+  <div style="display:flex; flex-direction:column; gap:16px; overflow-y:auto;">
+
+    <!-- SSH Connection -->
+    <div class="panel">
+      <div class="panel-title">SSH Connection</div>
+
+      <div class="tabs">
+        <button class="tab active" onclick="switchAuthTab('key', this)">Key Auth</button>
+        <button class="tab"        onclick="switchAuthTab('password', this)">Password</button>
+      </div>
+
+      <div>
+        <label>Host</label>
+        <input type="text" id="ssh-host" placeholder="192.168.1.50" />
+      </div>
+      <div class="row">
+        <div style="flex:1">
+          <label>User</label>
+          <input type="text" id="ssh-user" placeholder="ubuntu" />
+        </div>
+        <div style="width:80px">
+          <label>Port</label>
+          <input type="number" id="ssh-port" value="22" />
+        </div>
+      </div>
+
+      <!-- Key auth -->
+      <div id="auth-key" class="auth-section active">
+        <label>Private key path (leave blank for default ~/.ssh/id_rsa)</label>
+        <input type="text" id="ssh-key" placeholder="~/.ssh/id_rsa" />
+      </div>
+
+      <!-- Password auth -->
+      <div id="auth-password" class="auth-section">
+        <label>Password (requires sshpass installed)</label>
+        <input type="password" id="ssh-password" placeholder="••••••••" />
+      </div>
+
+      <button class="full" onclick="sshConnect()">Connect via SSH</button>
+      <div id="ssh-status" style="font-size:12px; color:var(--muted);">Not connected</div>
+    </div>
+
+    <!-- SSH Exec -->
+    <div class="panel">
+      <div class="panel-title">SSH Execute</div>
+      <div>
+        <label>Remote shell command</label>
+        <div class="row">
+          <input type="text" id="ssh-cmd" placeholder="uname -a" />
+          <button onclick="sshExec()">Run</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terminal Emulator -->
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="panel-title" style="border:none;padding:0;">Terminal</div>
+        <div class="row" style="gap:6px;margin:0;">
+          <button style="padding:4px 10px;font-size:11px;background:var(--border);" onclick="termConnect()">Connect</button>
+          <button style="padding:4px 10px;font-size:11px;background:var(--danger);" onclick="termDisconnect()">Disconnect</button>
+        </div>
+      </div>
+      <div id="term-panel">
+        <div id="term-status">Not connected — fill SSH credentials above and click Connect</div>
+        <div id="term-container"></div>
+      </div>
+    </div>
+
+    <!-- File Transfer -->
+    <div class="panel">
+      <div class="panel-title">File Transfer</div>
+
+      <!-- Upload -->
+      <div>
+        <label>Upload: select file</label>
+        <input type="file" id="upload-file" style="width:100%;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;" />
+      </div>
+      <div>
+        <label>Remote destination path</label>
+        <div class="row">
+          <input type="text" id="upload-remote" placeholder="/home/user/file.txt" />
+          <button onclick="uploadFile()">Upload</button>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div id="upload-progress-wrap" style="display:none;">
+        <label>Upload progress</label>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;overflow:hidden;height:12px;">
+          <div id="upload-progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width .2s;"></div>
+        </div>
+        <div id="upload-progress-label" style="font-size:11px;color:var(--muted);margin-top:4px;">0%</div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);" />
+
+      <!-- Download -->
+      <div>
+        <label>Download: remote file path</label>
+        <div class="row">
+          <input type="text" id="download-remote" placeholder="/home/user/file.txt" />
+          <button onclick="downloadFile()">Download</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mouse Control -->
+    <div class="panel">
+      <div class="panel-title">Mouse</div>
+
+      <div>
+        <label>Coordinates (X, Y)</label>
+        <div class="row">
+          <input type="number" id="mx" placeholder="X" value="0" />
+          <input type="number" id="my" placeholder="Y" value="0" />
+        </div>
+      </div>
+
+      <div>
+        <label>Button (1=Left, 2=Mid, 3=Right)</label>
+        <input type="number" id="mbtn" value="1" min="1" max="3" />
+      </div>
+
+      <div class="row">
+        <button class="full" onclick="mouseMove()">Move</button>
+        <button class="full" onclick="mouseClick()">Click</button>
+      </div>
+    </div>
+
+    <!-- Keyboard Control -->
+    <div class="panel">
+      <div class="panel-title">Keyboard</div>
+
+      <div>
+        <label>Key name (e.g. ENTER, ESCAPE, F5, A)</label>
+        <div class="row">
+          <input type="text" id="keyname" placeholder="ENTER" />
+          <button onclick="keyPress()">Press</button>
+        </div>
+      </div>
+
+      <div class="key-grid">
+        <button onclick="sendKey('ENTER')">Enter</button>
+        <button onclick="sendKey('ESCAPE')">Esc</button>
+        <button onclick="sendKey('TAB')">Tab</button>
+        <button onclick="sendKey('SPACE')">Space</button>
+        <button onclick="sendKey('BACK_SPACE')">⌫</button>
+        <button onclick="sendKey('DELETE')">Del</button>
+        <button onclick="sendKey('UP')">↑</button>
+        <button onclick="sendKey('DOWN')">↓</button>
+        <button onclick="sendKey('LEFT')">←</button>
+        <button onclick="sendKey('RIGHT')">→</button>
+        <button onclick="sendKey('F5')">F5</button>
+        <button onclick="sendKey('F11')">F11</button>
+      </div>
+
+      <div>
+        <label>Type text</label>
+        <div class="row">
+          <input type="text" id="typetext" placeholder="Hello world" />
+          <button onclick="typeText()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Execute Command -->
+    <div class="panel">
+      <div class="panel-title">Execute Command</div>
+      <div>
+        <label>Shell command</label>
+        <div class="row">
+          <input type="text" id="execcmd" placeholder="ls -la" />
+          <button onclick="execCmd()">Run</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screenshot -->
+    <div class="panel">
+      <div class="panel-title">Screenshot</div>
+      <button onclick="takeScreenshot()">Capture Screen</button>
+    </div>
+
+  </div>
+
+  <!-- ===== RIGHT PANEL ===== -->
+  <div class="right">
+
+    <!-- File Browser -->
+    <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div class="panel-title" style="border:none;padding:0;">File Browser</div>
+        <div class="row" style="gap:6px;margin:0;">
+          <input type="text" id="fb-path-input" placeholder="~ or /home/user" style="width:180px;font-size:12px;padding:5px 8px;" />
+          <button style="padding:5px 10px;font-size:12px;" onclick="fbNavigate(document.getElementById('fb-path-input').value || '~')">Go</button>
+          <button style="padding:5px 10px;font-size:12px;background:var(--border);" onclick="fbRefresh()" title="Refresh">↺</button>
+          <button style="padding:5px 10px;font-size:12px;background:var(--border);" onclick="fbUp()" title="Parent directory">↑</button>
+        </div>
+      </div>
+
+      <div id="fb-wrap">
+        <div id="fb-breadcrumb"><span style="color:var(--muted);font-style:italic;">Not connected</span></div>
+        <div id="fb-table-wrap" style="position:relative;">
+          <div id="fb-drop-overlay" class="">
+            <span>📂</span>
+            <p>Drop files to upload here</p>
+          </div>
+          <div id="fb-loading" style="display:none;">Loading...</div>
+          <table id="fb-table">
+            <thead>
+              <tr>
+                <th class="fb-cb-cell" title="Select all"><input type="checkbox" id="fb-select-all" onclick="fbSelectAll(this.checked)" /></th>
+                <th onclick="fbSort('name')">Name <span id="fb-sort-name"></span></th>
+                <th onclick="fbSort('size')" style="text-align:right;">Size <span id="fb-sort-size"></span></th>
+                <th onclick="fbSort('date')">Modified <span id="fb-sort-date"></span></th>
+                <th onclick="fbSort('perms')">Permissions <span id="fb-sort-perms"></span></th>
+              </tr>
+            </thead>
+            <tbody id="fb-body">
+              <tr><td colspan="5" id="fb-empty">Connect via SSH to browse files</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="fb-batch-bar">
+          <span id="fb-batch-count">0 selected</span>
+          <button onclick="batchDownload()">⬇ Download</button>
+          <button class="danger" onclick="batchDelete()">🗑 Delete</button>
+          <button style="background:var(--border);" onclick="fbClearSelection()">✕ Clear</button>
+        </div>
+        <div id="fb-upload-queue"></div>
+        <div id="fb-download-queue"></div>
+      </div>
+    </div>
+
+    <!-- Screenshot display -->
+    <div id="screenshot-container" class="panel" style="padding:0;">
+      <div style="padding:8px 12px; font-size:11px; color:var(--muted);">Latest Screenshot</div>
+      <img id="screenshot-img" alt="screenshot" />
+    </div>
+
+    <!-- AI Assistant -->
+    <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="panel-title" style="border:none;padding:0;flex:1;">AI Assistant</div>
+        <button style="padding:3px 8px;font-size:11px;background:var(--border);" onclick="aiClear()" title="Clear chat">✕ Clear</button>
+      </div>
+      <div id="ai-key-warn">⚠ ANTHROPIC_API_KEY not set on server — AI features unavailable.</div>
+      <div id="ai-panel">
+        <div id="ai-messages">
+          <div class="ai-msg ai">
+            <div class="ai-bubble">Hi! I can help you manage your remote machine. Ask me to suggest commands, explain output, or assist with file operations.</div>
+          </div>
+        </div>
+        <div id="ai-typing"></div>
+        <div class="row" style="gap:6px;">
+          <input type="text" id="ai-input" placeholder="Ask anything about your remote machine…" style="flex:1;font-size:13px;" />
+          <button id="ai-send" onclick="aiSend()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live terminal -->
+    <div class="panel terminal-wrap" style="flex:1;">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div class="panel-title" style="border:none; padding:0;">Live Output</div>
+        <button class="danger" style="padding:4px 10px; font-size:11px;" onclick="clearLog()">Clear</button>
+      </div>
+      <div id="terminal"></div>
+    </div>
+
+  </div>
+</main>
+
+<!-- Context menu (shared, repositioned on each right-click) -->
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-open">       <span class="ctx-icon">📂</span> Open</div>
+  <div class="ctx-item" id="ctx-download">   <span class="ctx-icon">⬇</span> Download</div>
+  <div class="ctx-item" id="ctx-terminal">   <span class="ctx-icon">⌨</span> Open in Terminal</div>
+  <hr class="ctx-sep">
+  <div class="ctx-item" id="ctx-copy-path">  <span class="ctx-icon">📋</span> Copy Path</div>
+  <div class="ctx-item" id="ctx-copy-name">  <span class="ctx-icon">✏</span> Copy Name</div>
+  <hr class="ctx-sep">
+  <div class="ctx-item" id="ctx-rename">     <span class="ctx-icon">✏</span> Rename</div>
+  <div class="ctx-item" id="ctx-mkdir">      <span class="ctx-icon">📁</span> New Folder</div>
+  <hr class="ctx-sep">
+  <div class="ctx-item danger" id="ctx-delete"><span class="ctx-icon">🗑</span> Delete</div>
+  <hr class="ctx-sep">
+  <div class="ctx-item" id="ctx-refresh">    <span class="ctx-icon">↺</span> Refresh</div>
+</div>
+
+<script>
+  const terminal   = document.getElementById('terminal');
+  const statusDot  = document.getElementById('status-dot');
+  const statusText = document.getElementById('status-text');
+
+  // ---- SSE connection ----
+  const sse = new EventSource('/status');
+
+  sse.onopen = () => {
+    statusDot.classList.add('connected');
+    statusText.textContent = 'SSE connected';
+  };
+
+  sse.onerror = () => {
+    statusDot.classList.remove('connected');
+    statusText.textContent = 'SSE disconnected — retrying...';
+  };
+
+  sse.onmessage = (e) => {
+    const msg = e.data;
+
+    if (msg.startsWith('SCREENSHOT ')) {
+      const b64 = msg.substring(11);
+      document.getElementById('screenshot-img').src = 'data:image/png;base64,' + b64;
+      document.getElementById('screenshot-container').style.display = 'block';
+      log('📸 Screenshot received', 'log-screenshot');
+      return;
+    }
+
+    const cls = msg.startsWith('CMD')    ? 'log-cmd'
+              : msg.startsWith('OK')     ? 'log-ok'
+              : msg.startsWith('ERROR')  ? 'log-error'
+              : msg.startsWith('OUTPUT') ? 'log-output'
+              : msg.startsWith('STATUS') ? 'log-status'
+              : 'log-output';
+
+    if (msg.startsWith('STATUS Connected')) {
+      statusDot.classList.add('connected');
+      statusText.textContent = 'Agent connected';
+    } else if (msg.startsWith('STATUS Disconnected') || msg.startsWith('STATUS Agent disconnected')) {
+      statusDot.classList.remove('connected');
+      statusText.textContent = 'Agent disconnected';
+    }
+
+    log(msg, cls);
+  };
+
+  // ---- helpers ----
+  function log(text, cls = 'log-output') {
+    const line = document.createElement('div');
+    line.className = cls;
+    line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text;
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+
+  function clearLog() { terminal.innerHTML = ''; }
+
+  async function sendCommand(cmd) {
+    try {
+      await fetch('/command', {
+        method: 'POST',
+        body: cmd,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+    } catch (e) {
+      log('ERROR Failed to send: ' + e.message, 'log-error');
+    }
+  }
+
+  // ---- controls ----
+  function mouseMove() {
+    const x = document.getElementById('mx').value;
+    const y = document.getElementById('my').value;
+    sendCommand(`MOUSE_MOVE ${x} ${y}`);
+  }
+
+  function mouseClick() {
+    const x = document.getElementById('mx').value;
+    const y = document.getElementById('my').value;
+    const b = document.getElementById('mbtn').value;
+    sendCommand(`MOUSE_CLICK ${x} ${y} ${b}`);
+  }
+
+  function keyPress() {
+    const k = document.getElementById('keyname').value.trim().toUpperCase();
+    if (k) sendCommand('KEY_PRESS ' + k);
+  }
+
+  function sendKey(k) {
+    sendCommand('KEY_PRESS ' + k);
+  }
+
+  function typeText() {
+    const t = document.getElementById('typetext').value;
+    if (t) sendCommand('TYPE ' + t);
+  }
+
+  function execCmd() {
+    const c = document.getElementById('execcmd').value.trim();
+    if (c) sendCommand('EXEC ' + c);
+  }
+
+  function takeScreenshot() {
+    sendCommand('SCREENSHOT');
+  }
+
+  // ---- keyboard shortcuts ----
+  document.addEventListener('keydown', e => {
+    // F5 or Ctrl+R — refresh file browser (suppress full page reload)
+    const isRefresh = e.key === 'F5' || (e.key === 'r' && (e.ctrlKey || e.metaKey));
+    if (isRefresh && fbCurrentPath) {
+      e.preventDefault();
+      fbRefresh();
+    }
+  });
+
+  document.getElementById('execcmd').addEventListener('keydown', e => {
+    if (e.key === 'Enter') execCmd();
+  });
+  document.getElementById('typetext').addEventListener('keydown', e => {
+    if (e.key === 'Enter') typeText();
+  });
+  document.getElementById('keyname').addEventListener('keydown', e => {
+    if (e.key === 'Enter') keyPress();
+  });
+  document.getElementById('ssh-cmd').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sshExec();
+  });
+
+  // ---- Terminal Emulator ----
+
+  let term    = null;
+  let fitAddon = null;
+  let termWs  = null;
+
+  function termInit() {
+    if (term) { term.dispose(); }
+    term = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+      theme: {
+        background:  '#0a0a0a',
+        foreground:  '#d4d8f0',
+        cursor:      '#4f8ef7',
+        black:       '#1a1d27',
+        brightBlack: '#6b708a',
+      },
+      convertEol: false,
+      scrollback: 2000,
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    const container = document.getElementById('term-container');
+    container.innerHTML = '';
+    term.open(container);
+    fitAddon.fit();
+
+    // Resize observer
+    const ro = new ResizeObserver(() => { try { fitAddon.fit(); } catch(_) {} });
+    ro.observe(container);
+
+    // Send keystrokes to server
+    term.onData(data => {
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        termWs.send(data);
+      }
+    });
+
+    // Notify server on resize
+    term.onResize(({ cols, rows }) => {
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+  }
+
+  function termConnect() {
+    const host     = document.getElementById('ssh-host').value.trim();
+    const user     = document.getElementById('ssh-user').value.trim();
+    const port     = document.getElementById('ssh-port').value || '22';
+    const key      = document.getElementById('ssh-key').value.trim();
+    const password = document.getElementById('ssh-password').value;
+    const auth     = currentAuthTab;
+
+    if (!host) { log('ERROR Terminal: SSH host is required', 'log-error'); return; }
+
+    termDisconnect();
+    termInit();
+
+    const status = document.getElementById('term-status');
+    status.textContent = 'Connecting...';
+
+    const dims = term ? { cols: term.cols, rows: term.rows } : { cols: 80, rows: 24 };
+    const config = JSON.stringify({ host, user, port, auth, key, password,
+                                    cols: dims.cols, rows: dims.rows });
+
+    termWs = new WebSocket('ws://' + location.hostname + ':8081');
+    termWs.binaryType = 'arraybuffer';
+
+    termWs.onopen = () => {
+      termWs.send(config);
+      status.textContent = 'Connected to ' + user + '@' + host;
+      status.style.color = 'var(--success)';
+    };
+
+    termWs.onmessage = e => {
+      const data = e.data instanceof ArrayBuffer
+        ? new TextDecoder().decode(e.data)
+        : e.data;
+      term.write(data);
+    };
+
+    termWs.onclose = () => {
+      status.textContent = 'Disconnected';
+      status.style.color = 'var(--muted)';
+      if (term) term.write('\r\n\r\n[Connection closed]\r\n');
+    };
+
+    termWs.onerror = () => {
+      status.textContent = 'Connection error';
+      status.style.color = 'var(--danger)';
+    };
+  }
+
+  function termDisconnect() {
+    if (termWs) {
+      termWs.onclose = null;   // suppress the disconnect message
+      termWs.close();
+      termWs = null;
+    }
+    document.getElementById('term-status').textContent = 'Disconnected';
+    document.getElementById('term-status').style.color = 'var(--muted)';
+  }
+
+  // ---- AI Assistant ----
+
+  let aiHistory = [];     // [{role, content}]
+  let aiStreaming = false;
+
+  document.getElementById('ai-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiSend(); }
+  });
+
+  async function aiSend() {
+    if (aiStreaming) return;
+    const input = document.getElementById('ai-input');
+    const msg   = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+
+    aiAppend('user', msg);
+    aiHistory.push({ role: 'user', content: msg });
+
+    // Build context from current app state
+    const context = [
+      ssh.host ? `SSH: connected to ${ssh.user}@${ssh.host}:${ssh.port}` : 'SSH: not connected',
+      fbCurrentPath ? `Current directory: ${fbCurrentPath}` : '',
+      recentTerminalOutput()
+    ].filter(Boolean).join('\n');
+
+    aiStreaming = true;
+    document.getElementById('ai-send').disabled = true;
+    document.getElementById('ai-typing').textContent = 'Claude is thinking…';
+
+    const historyForApi = JSON.stringify(aiHistory.slice(0, -1)); // all except the current user msg
+    const bubble = aiAppend('ai', '');
+
+    try {
+      const res = await fetch('/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, context, history: historyForApi })
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        aiBubbleAppend(bubble, '\n[Error: ' + err + ']');
+        if (err.includes('ANTHROPIC_API_KEY')) {
+          document.getElementById('ai-key-warn').style.display = 'block';
+        }
+        aiDone(bubble, null);
+        return;
+      }
+
+      let fullText = '';
+      const reader = res.body.getReader();
+      const dec    = new TextDecoder();
+      let   buf    = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();   // keep incomplete line
+
+        for (const line of lines) {
+          if (line.startsWith('event: token')) continue;
+          if (line.startsWith('event: done'))  { aiDone(bubble, fullText); return; }
+          if (line.startsWith('event: error')) continue;
+          if (line.startsWith('data: ') && !line.includes('{}')) {
+            try {
+              const token = JSON.parse(line.slice(6));
+              fullText += token;
+              aiBubbleSet(bubble, fullText);
+            } catch (_) {}
+          }
+        }
+      }
+      aiDone(bubble, fullText);
+    } catch (e) {
+      aiBubbleAppend(bubble, '\n[Request failed: ' + e.message + ']');
+      aiDone(bubble, null);
+    }
+  }
+
+  function aiDone(bubble, text) {
+    aiStreaming = false;
+    document.getElementById('ai-send').disabled = false;
+    document.getElementById('ai-typing').textContent = '';
+
+    if (text) {
+      aiHistory.push({ role: 'assistant', content: text });
+      // Inject "Run" buttons for bash code blocks
+      aiInjectRunButtons(bubble, text);
+    }
+  }
+
+  function aiAppend(role, text) {
+    const msgs    = document.getElementById('ai-messages');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ai-msg ' + role;
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-bubble';
+    bubble.textContent = text;
+    wrapper.appendChild(bubble);
+    msgs.appendChild(wrapper);
+    msgs.scrollTop = msgs.scrollHeight;
+    return bubble;
+  }
+
+  function aiBubbleSet(bubble, text) {
+    bubble.textContent = text;
+    const msgs = document.getElementById('ai-messages');
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function aiBubbleAppend(bubble, text) {
+    bubble.textContent += text;
+  }
+
+  function aiInjectRunButtons(bubble, fullText) {
+    // Render markdown-like code blocks and add Run buttons
+    const html = fullText
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/```(?:bash|sh|shell)?\n([\s\S]*?)```/g, (_, code) => {
+        const escaped = code.trim();
+        const id = 'ai-code-' + Math.random().toString(36).slice(2);
+        return `<pre id="${id}">${escaped}</pre>`;
+      })
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    bubble.innerHTML = html;
+
+    // Add Run buttons under each pre block
+    bubble.querySelectorAll('pre').forEach(pre => {
+      const btn = document.createElement('button');
+      btn.className = 'ai-run-btn';
+      btn.textContent = '▶ Run via SSH';
+      btn.onclick = () => {
+        const cmd = pre.textContent.trim();
+        document.getElementById('ssh-cmd').value = cmd;
+        sshExec();
+        log('CMD [AI→SSH] → ' + cmd, 'log-cmd');
+      };
+      pre.parentNode.insertBefore(btn, pre.nextSibling);
+    });
+
+    const msgs = document.getElementById('ai-messages');
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function aiClear() {
+    aiHistory = [];
+    const msgs = document.getElementById('ai-messages');
+    msgs.innerHTML = '<div class="ai-msg ai"><div class="ai-bubble">Chat cleared. How can I help?</div></div>';
+  }
+
+  // Grab last ~20 lines from the terminal as context
+  function recentTerminalOutput() {
+    const lines = Array.from(document.getElementById('terminal').children)
+      .slice(-20).map(el => el.textContent).join('\n');
+    return lines ? 'Recent terminal output:\n' + lines : '';
+  }
+
+  // Expose SSH state for context building
+  const ssh = { host: null, user: null, port: 22 };
+
+  // ---- File Browser ----
+
+  let fbCurrentPath = '~';
+  let fbEntries     = [];
+  let fbSortKey     = 'name';
+  let fbSortAsc     = true;
+
+  async function fbNavigate(path) {
+    if (!path) return;
+    fbCurrentPath = path;
+    document.getElementById('fb-path-input').value = path;
+    document.getElementById('fb-loading').style.display = 'block';
+    document.getElementById('fb-body').innerHTML = '';
+
+    try {
+      const res = await fetch('/ssh/browse', {
+        method: 'POST', body: path, headers: { 'Content-Type': 'text/plain' }
+      });
+      const data = await res.json();
+
+      document.getElementById('fb-loading').style.display = 'none';
+
+      if (data.error) {
+        document.getElementById('fb-body').innerHTML =
+          `<tr><td colspan="4" id="fb-empty">Error: ${escHtml(data.error)}</td></tr>`;
+        return;
+      }
+
+      fbCurrentPath = data.path;
+      document.getElementById('fb-path-input').value = data.path;
+      fbEntries = data.entries || [];
+      fbRender();
+      fbUpdateBreadcrumb(data.path);
+    } catch (e) {
+      document.getElementById('fb-loading').style.display = 'none';
+      document.getElementById('fb-body').innerHTML =
+        `<tr><td colspan="4" id="fb-empty">Request failed: ${escHtml(e.message)}</td></tr>`;
+    }
+  }
+
+  function fbRefresh() { fbClearSelection(); fbNavigate(fbCurrentPath); }
+
+  function fbUp() {
+    if (!fbCurrentPath || fbCurrentPath === '/') return;
+    const parts = fbCurrentPath.replace(/\/$/, '').split('/');
+    parts.pop();
+    fbNavigate(parts.join('/') || '/');
+  }
+
+  function fbSort(key) {
+    if (fbSortKey === key) fbSortAsc = !fbSortAsc;
+    else { fbSortKey = key; fbSortAsc = true; }
+    fbRender();
+  }
+
+  function fbRender() {
+    // Separate dirs and files; dirs always first
+    const dirs  = fbEntries.filter(e => e.type === 'dir');
+    const links = fbEntries.filter(e => e.type === 'link');
+    const files = fbEntries.filter(e => e.type === 'file');
+
+    const sortFn = (a, b) => {
+      let va = a[fbSortKey] ?? '', vb = b[fbSortKey] ?? '';
+      if (fbSortKey === 'size') { va = Number(va); vb = Number(vb); }
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return fbSortAsc ? cmp : -cmp;
+    };
+
+    dirs.sort(sortFn); links.sort(sortFn); files.sort(sortFn);
+    const sorted = [...dirs, ...links, ...files];
+    fbSortedCache = sorted;  // keep for multi-select index lookups
+    fbSelected.clear();      // reset selection on re-render
+    fbSyncSelection();
+
+    // Update sort indicators
+    ['name','size','date','perms'].forEach(k => {
+      const el = document.getElementById('fb-sort-' + k);
+      if (el) el.textContent = fbSortKey === k ? (fbSortAsc ? ' ▲' : ' ▼') : '';
+    });
+
+    if (sorted.length === 0) {
+      document.getElementById('fb-body').innerHTML =
+        '<tr><td colspan="5" id="fb-empty">Directory is empty</td></tr>';
+      return;
+    }
+
+    const rows = sorted.map((entry, idx) => {
+      const isDir  = entry.type === 'dir';
+      const isLink = entry.type === 'link';
+      const icon   = isDir ? '📁' : isLink ? '🔗' : fileIcon(entry.name);
+      const nameClass = isDir ? 'is-dir' : isLink ? 'is-link' : '';
+      const sizeStr   = isDir ? '—' : humanSize(entry.size);
+      const isDotDir  = entry.name === '.' || entry.name === '..';
+      const cbHtml    = isDotDir
+        ? '<td class="fb-cb-cell"></td>'
+        : `<td class="fb-cb-cell" onclick="event.stopPropagation()"><input type="checkbox" data-idx="${idx}" onclick="fbCheckboxClick(this,${idx},event)" /></td>`;
+
+      return `<tr class="fb-row" onclick="fbRowClick(${JSON.stringify(entry)})" data-entry='${JSON.stringify(entry).replace(/'/g,"&#39;")}' data-idx="${idx}">
+        ${cbHtml}
+        <td><span class="fb-icon">${icon}</span><span class="fb-name ${nameClass}">${escHtml(entry.name)}</span></td>
+        <td class="fb-size">${sizeStr}</td>
+        <td class="fb-date">${escHtml(entry.date)}</td>
+        <td class="fb-perms">${escHtml(entry.perms)}</td>
+      </tr>`;
+    });
+
+    document.getElementById('fb-body').innerHTML = rows.join('');
+  }
+
+  function fbRowClick(entry) {
+    if (entry.type === 'dir') {
+      const sep = fbCurrentPath.endsWith('/') ? '' : '/';
+      if (entry.name === '..')      fbUp();
+      else if (entry.name === '.') fbRefresh();
+      else fbNavigate(fbCurrentPath + sep + entry.name);
+    } else {
+      // Download file on click
+      const sep = fbCurrentPath.endsWith('/') ? '' : '/';
+      const remotePath = entry.name === '.' || entry.name === '..'
+        ? fbCurrentPath
+        : fbCurrentPath + sep + entry.name;
+      document.getElementById('download-remote').value = remotePath;
+      log('STATUS Downloading ' + remotePath + ' ...', 'log-status');
+      downloadFile();
+    }
+  }
+
+  function fbUpdateBreadcrumb(path) {
+    const parts = path === '/' ? [''] : path.split('/');
+    let built = '';
+    const crumbs = parts.map((part, i) => {
+      built = i === 0 ? '/' : built.replace(/\/$/, '') + '/' + part;
+      const label  = i === 0 ? '/' : part;
+      const target = built;
+      return (i === parts.length - 1)
+        ? `<span style="color:var(--text);padding:1px 4px;">${escHtml(label)}</span>`
+        : `<span class="fb-crumb" onclick="fbNavigate('${escAttr(target)}')">${escHtml(label)}</span>`
+          + (i < parts.length - 1 ? '<span class="fb-crumb-sep">/</span>' : '');
+    });
+    document.getElementById('fb-breadcrumb').innerHTML = crumbs.join('');
+  }
+
+  function fileIcon(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const map = {
+      txt:'📄', md:'📄', log:'📄',
+      js:'📜', ts:'📜', java:'📜', py:'📜', sh:'📜', rb:'📜', go:'📜', c:'📜', cpp:'📜',
+      json:'📋', xml:'📋', yaml:'📋', yml:'📋', toml:'📋', csv:'📋',
+      html:'🌐', css:'🌐',
+      png:'🖼', jpg:'🖼', jpeg:'🖼', gif:'🖼', svg:'🖼', webp:'🖼',
+      mp4:'🎬', mkv:'🎬', avi:'🎬', mov:'🎬',
+      mp3:'🎵', wav:'🎵', flac:'🎵',
+      zip:'📦', gz:'📦', tar:'📦', bz2:'📦', xz:'📦', '7z':'📦', rar:'📦',
+      pdf:'📕', doc:'📕', docx:'📕', xls:'📕', xlsx:'📕',
+      exe:'⚙️', bin:'⚙️', so:'⚙️', dll:'⚙️',
+    };
+    return map[ext] || '📄';
+  }
+
+  // ---- Multi-select ----
+
+  let fbSelected  = new Set();   // indices into the current fbEntries-sorted array
+  let fbLastCheck = -1;          // index of last checked box (for shift+click range)
+  let fbSortedCache = [];        // mirror of the last sorted array rendered
+
+  function fbCheckboxClick(cb, idx, e) {
+    if (e.shiftKey && fbLastCheck >= 0) {
+      // Range select between fbLastCheck and idx
+      const lo = Math.min(fbLastCheck, idx);
+      const hi = Math.max(fbLastCheck, idx);
+      for (let i = lo; i <= hi; i++) {
+        const entry = fbSortedCache[i];
+        if (entry && entry.name !== '.' && entry.name !== '..') {
+          cb.checked ? fbSelected.add(i) : fbSelected.delete(i);
+        }
+      }
+    } else {
+      cb.checked ? fbSelected.add(idx) : fbSelected.delete(idx);
+    }
+    fbLastCheck = idx;
+    fbSyncSelection();
+  }
+
+  function fbSelectAll(checked) {
+    fbSelected.clear();
+    if (checked) {
+      fbSortedCache.forEach((entry, i) => {
+        if (entry.name !== '.' && entry.name !== '..') fbSelected.add(i);
+      });
+    }
+    fbSyncSelection();
+  }
+
+  function fbClearSelection() {
+    fbSelected.clear();
+    fbLastCheck = -1;
+    fbSyncSelection();
+  }
+
+  function fbSyncSelection() {
+    // Update row highlight + checkbox state
+    document.querySelectorAll('#fb-body .fb-row').forEach(row => {
+      const idx = parseInt(row.dataset.idx);
+      const sel = fbSelected.has(idx);
+      row.classList.toggle('selected', sel);
+      const cb = row.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = sel;
+    });
+
+    // Update select-all header checkbox
+    const allCbs = document.querySelectorAll('#fb-body input[type=checkbox]');
+    const selAll = document.getElementById('fb-select-all');
+    if (selAll) {
+      selAll.checked       = allCbs.length > 0 && fbSelected.size === allCbs.length;
+      selAll.indeterminate = fbSelected.size > 0 && fbSelected.size < allCbs.length;
+    }
+
+    // Show/hide batch bar
+    const bar = document.getElementById('fb-batch-bar');
+    if (fbSelected.size > 0) {
+      bar.classList.add('visible');
+      document.getElementById('fb-batch-count').textContent =
+        fbSelected.size + ' item' + (fbSelected.size > 1 ? 's' : '') + ' selected';
+    } else {
+      bar.classList.remove('visible');
+    }
+  }
+
+  function fbSelectedEntries() {
+    return [...fbSelected].map(i => fbSortedCache[i]).filter(Boolean);
+  }
+
+  async function batchDelete() {
+    const entries = fbSelectedEntries();
+    if (!entries.length) return;
+    const names = entries.map(e => e.name).join(', ');
+    if (!confirm(`Delete ${entries.length} item(s)?\n${names}\n\nThis cannot be undone.`)) return;
+
+    const sep   = fbCurrentPath.endsWith('/') ? '' : '/';
+    const paths = entries.map(e => shellQ(fbCurrentPath + sep + e.name)).join(' ');
+    const cmd   = 'rm -rf ' + paths;
+    log('CMD [SSH] → ' + cmd, 'log-cmd');
+    await fetch('/ssh/exec', { method: 'POST', body: cmd });
+    fbClearSelection();
+    fbRefresh();
+  }
+
+  async function batchDownload() {
+    const entries = fbSelectedEntries().filter(e => e.type === 'file');
+    if (!entries.length) {
+      log('STATUS No files selected (directories cannot be batch-downloaded)', 'log-status');
+      return;
+    }
+    const sep = fbCurrentPath.endsWith('/') ? '' : '/';
+    for (const entry of entries) {
+      document.getElementById('download-remote').value = fbCurrentPath + sep + entry.name;
+      await downloadFile();
+    }
+  }
+
+  // ---- Context Menu ----
+
+  const ctxMenu = document.getElementById('ctx-menu');
+  let   ctxEntry = null;   // the file/dir entry that was right-clicked (null = background)
+
+  // Show on right-click inside the file browser table
+  document.getElementById('fb-table-wrap').addEventListener('contextmenu', e => {
+    e.preventDefault();
+
+    // Walk up from the click target to find a .fb-row
+    const row = e.target.closest('.fb-row');
+    ctxEntry  = row ? JSON.parse(row.dataset.entry) : null;
+
+    // Show/hide items depending on what was clicked
+    const isFile   = ctxEntry && ctxEntry.type === 'file';
+    const isDir    = ctxEntry && ctxEntry.type === 'dir';
+    const isDotDir = ctxEntry && (ctxEntry.name === '.' || ctxEntry.name === '..');
+
+    document.getElementById('ctx-open').style.display      = isDir  ? '' : 'none';
+    document.getElementById('ctx-download').style.display  = isFile ? '' : 'none';
+    document.getElementById('ctx-rename').style.display    = (ctxEntry && !isDotDir) ? '' : 'none';
+    document.getElementById('ctx-delete').style.display    = (ctxEntry && !isDotDir) ? '' : 'none';
+    document.getElementById('ctx-copy-path').style.display = ctxEntry ? '' : 'none';
+    document.getElementById('ctx-copy-name').style.display = ctxEntry ? '' : 'none';
+    document.getElementById('ctx-terminal').style.display  = ctxEntry ? '' : 'none';
+
+    // Position near cursor, keep inside viewport
+    ctxMenu.style.left = '0';
+    ctxMenu.style.top  = '0';
+    ctxMenu.classList.add('open');
+    const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
+    const vw = window.innerWidth,   vh = window.innerHeight;
+    ctxMenu.style.left = Math.min(e.clientX, vw - mw - 8) + 'px';
+    ctxMenu.style.top  = Math.min(e.clientY, vh - mh - 8) + 'px';
+  });
+
+  // Close on any click outside
+  document.addEventListener('click',       ctxClose);
+  document.addEventListener('contextmenu', ctxClose, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') ctxClose(); });
+
+  function ctxClose(e) {
+    if (e && e.target.closest('#ctx-menu')) return;
+    ctxMenu.classList.remove('open');
+  }
+
+  // ---- Context Menu Actions ----
+
+  function ctxFullPath(entry) {
+    const sep = fbCurrentPath.endsWith('/') ? '' : '/';
+    return (entry.name === '.' || entry.name === '..') ? fbCurrentPath
+         : fbCurrentPath + sep + entry.name;
+  }
+
+  document.getElementById('ctx-open').addEventListener('click', () => {
+    if (!ctxEntry) return;
+    const sep = fbCurrentPath.endsWith('/') ? '' : '/';
+    fbNavigate(fbCurrentPath + sep + ctxEntry.name);
+  });
+
+  document.getElementById('ctx-download').addEventListener('click', () => {
+    if (!ctxEntry) return;
+    document.getElementById('download-remote').value = ctxFullPath(ctxEntry);
+    downloadFile();
+  });
+
+  document.getElementById('ctx-terminal').addEventListener('click', () => {
+    const path = ctxEntry ? ctxFullPath(ctxEntry) : fbCurrentPath;
+    document.getElementById('ssh-cmd').value = ctxEntry && ctxEntry.type === 'file'
+      ? 'cat ' + path
+      : 'ls -la ' + path;
+    document.getElementById('ssh-cmd').focus();
+  });
+
+  document.getElementById('ctx-copy-path').addEventListener('click', () => {
+    if (!ctxEntry) return;
+    navigator.clipboard.writeText(ctxFullPath(ctxEntry))
+      .then(() => log('STATUS Copied path to clipboard', 'log-status'));
+  });
+
+  document.getElementById('ctx-copy-name').addEventListener('click', () => {
+    if (!ctxEntry) return;
+    navigator.clipboard.writeText(ctxEntry.name)
+      .then(() => log('STATUS Copied name to clipboard', 'log-status'));
+  });
+
+  document.getElementById('ctx-rename').addEventListener('click', async () => {
+    if (!ctxEntry) return;
+    const newName = prompt('Rename "' + ctxEntry.name + '" to:', ctxEntry.name);
+    if (!newName || newName === ctxEntry.name) return;
+    const sep     = fbCurrentPath.endsWith('/') ? '' : '/';
+    const oldPath = ctxFullPath(ctxEntry);
+    const newPath = fbCurrentPath + sep + newName;
+    const cmd     = 'mv ' + shellQ(oldPath) + ' ' + shellQ(newPath);
+    log('CMD [SSH] → ' + cmd, 'log-cmd');
+    const res = await fetch('/ssh/exec', { method: 'POST', body: cmd });
+    if (res.ok) fbRefresh();
+  });
+
+  document.getElementById('ctx-mkdir').addEventListener('click', async () => {
+    const name = prompt('New folder name:');
+    if (!name) return;
+    const sep  = fbCurrentPath.endsWith('/') ? '' : '/';
+    const path = fbCurrentPath + sep + name;
+    const cmd  = 'mkdir -p ' + shellQ(path);
+    log('CMD [SSH] → ' + cmd, 'log-cmd');
+    const res = await fetch('/ssh/exec', { method: 'POST', body: cmd });
+    if (res.ok) fbRefresh();
+  });
+
+  document.getElementById('ctx-delete').addEventListener('click', async () => {
+    if (!ctxEntry) return;
+    const path = ctxFullPath(ctxEntry);
+    const kind = ctxEntry.type === 'dir' ? 'directory' : 'file';
+    if (!confirm('Delete ' + kind + ' "' + ctxEntry.name + '"?\nThis cannot be undone.')) return;
+    const cmd = ctxEntry.type === 'dir'
+      ? 'rm -rf ' + shellQ(path)
+      : 'rm '     + shellQ(path);
+    log('CMD [SSH] → ' + cmd, 'log-cmd');
+    const res = await fetch('/ssh/exec', { method: 'POST', body: cmd });
+    if (res.ok) fbRefresh();
+  });
+
+  document.getElementById('ctx-refresh').addEventListener('click', fbRefresh);
+
+  // Single-quote shell escaping
+  function shellQ(s) { return "'" + s.replace(/'/g, "'\\''") + "'"; }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
+
+  // ---- Drag and Drop Upload ----
+
+  (function initDragDrop() {
+    const wrap    = document.getElementById('fb-table-wrap');
+    const overlay = document.getElementById('fb-drop-overlay');
+    let   dragDepth = 0;  // track enter/leave on nested elements
+
+    wrap.addEventListener('dragenter', e => {
+      e.preventDefault();
+      dragDepth++;
+      wrap.classList.add('drag-over');
+      overlay.classList.add('visible');
+    });
+
+    wrap.addEventListener('dragleave', () => {
+      dragDepth--;
+      if (dragDepth <= 0) {
+        dragDepth = 0;
+        wrap.classList.remove('drag-over');
+        overlay.classList.remove('visible');
+      }
+    });
+
+    wrap.addEventListener('dragover', e => { e.preventDefault(); });
+
+    wrap.addEventListener('drop', e => {
+      e.preventDefault();
+      dragDepth = 0;
+      wrap.classList.remove('drag-over');
+      overlay.classList.remove('visible');
+
+      const files = Array.from(e.dataTransfer.files);
+      if (!files.length) return;
+
+      if (!fbCurrentPath || fbCurrentPath === '~') {
+        log('ERROR Cannot upload: navigate to a directory first', 'log-error');
+        return;
+      }
+
+      queueDrop(files);
+    });
+  })();
+
+  // Upload queue state
+  const uploadQueue = [];
+  let   uploadRunning = false;
+
+  function queueDrop(files) {
+    const queue = document.getElementById('fb-upload-queue');
+    queue.classList.add('visible');
+
+    files.forEach(file => {
+      const id  = 'uq-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+      const row = document.createElement('div');
+      row.className = 'uq-row';
+      row.id        = id;
+      row.innerHTML = `
+        <span class="uq-name" title="${escHtml(file.name)}">${escHtml(file.name)}</span>
+        <div class="uq-bar-wrap"><div class="uq-bar" id="${id}-bar"></div></div>
+        <span class="uq-pct" id="${id}-pct">0%</span>`;
+      queue.appendChild(row);
+      uploadQueue.push({ file, id });
+    });
+
+    if (!uploadRunning) drainQueue();
+  }
+
+  async function drainQueue() {
+    uploadRunning = true;
+    while (uploadQueue.length > 0) {
+      const { file, id } = uploadQueue.shift();
+      await uploadDropped(file, id);
+    }
+    uploadRunning = false;
+    // Refresh directory after all uploads complete
+    setTimeout(() => fbRefresh(), 400);
+    // Hide queue after a short delay
+    setTimeout(() => {
+      document.getElementById('fb-upload-queue').classList.remove('visible');
+      document.getElementById('fb-upload-queue').innerHTML = '';
+    }, 2500);
+  }
+
+  function uploadDropped(file, id) {
+    const sep        = fbCurrentPath.endsWith('/') ? '' : '/';
+    const remotePath = fbCurrentPath + sep + file.name;
+    const bar        = document.getElementById(id + '-bar');
+    const pct        = document.getElementById(id + '-pct');
+
+    log('STATUS Uploading ' + file.name + ' (' + humanSize(file.size) + ') → ' + remotePath, 'log-status');
+
+    return new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/ssh/upload');
+      xhr.setRequestHeader('X-Remote-Path', remotePath);
+      xhr.setRequestHeader('X-Filename',    file.name);
+
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          const p = Math.round(e.loaded / e.total * 100);
+          bar.style.width  = p + '%';
+          pct.textContent  = p + '%';
+        }
+      };
+
+      xhr.onload = () => {
+        bar.style.width = '100%';
+        pct.textContent = '100%';
+        if (xhr.status === 200) {
+          bar.classList.add('done');
+          log('OK Uploaded ' + file.name, 'log-ok');
+        } else {
+          bar.classList.add('error');
+          log('ERROR Upload failed: ' + xhr.responseText, 'log-error');
+        }
+        resolve();
+      };
+
+      xhr.onerror = () => {
+        bar.classList.add('error');
+        pct.textContent = 'ERR';
+        log('ERROR Upload request failed for ' + file.name, 'log-error');
+        resolve();
+      };
+
+      xhr.send(file);
+    });
+  }
+
+  // Auto-browse home when SSH connects
+  // (wired into the SSE onmessage override below)
+
+  // ---- File Transfer ----
+
+  async function uploadFile() {
+    const fileInput  = document.getElementById('upload-file');
+    const remotePath = document.getElementById('upload-remote').value.trim();
+
+    if (!fileInput.files.length) { log('ERROR No file selected', 'log-error'); return; }
+    if (!remotePath)             { log('ERROR Remote path required', 'log-error'); return; }
+
+    const file     = fileInput.files[0];
+    const progWrap = document.getElementById('upload-progress-wrap');
+    const progBar  = document.getElementById('upload-progress-bar');
+    const progLbl  = document.getElementById('upload-progress-label');
+
+    progWrap.style.display = 'block';
+    progBar.style.width    = '0%';
+    progLbl.textContent    = '0%';
+    log('STATUS Uploading ' + file.name + ' (' + humanSize(file.size) + ') ...', 'log-status');
+
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/ssh/upload');
+      xhr.setRequestHeader('X-Remote-Path', remotePath);
+      xhr.setRequestHeader('X-Filename',    file.name);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          progBar.style.width  = pct + '%';
+          progLbl.textContent  = pct + '%';
+        }
+      };
+
+      xhr.onload = () => {
+        progBar.style.width = '100%';
+        progLbl.textContent = '100%';
+        if (xhr.status === 200) {
+          log('OK Upload sent — waiting for SCP to finish...', 'log-ok');
+        } else {
+          log('ERROR Upload failed: ' + xhr.responseText, 'log-error');
+          progWrap.style.display = 'none';
+        }
+        resolve();
+      };
+
+      xhr.onerror = () => {
+        log('ERROR Upload request failed', 'log-error');
+        progWrap.style.display = 'none';
+        resolve();
+      };
+
+      xhr.send(file);
+    });
+  }
+
+  async function downloadFile() {
+    const remotePath = document.getElementById('download-remote').value.trim();
+    if (!remotePath) { log('ERROR Remote path required', 'log-error'); return; }
+
+    const filename = remotePath.split('/').pop() || 'download';
+    const id       = 'dq-' + Date.now();
+    const queue    = document.getElementById('fb-download-queue');
+
+    // Add progress row
+    queue.classList.add('visible');
+    const row = document.createElement('div');
+    row.className = 'uq-row';
+    row.id        = id;
+    row.innerHTML = `
+      <span class="uq-name" title="${escHtml(remotePath)}">${escHtml(filename)}</span>
+      <div class="uq-bar-wrap"><div class="uq-bar" id="${id}-bar"></div></div>
+      <span class="uq-pct" id="${id}-pct">…</span>`;
+    queue.appendChild(row);
+
+    const bar = () => document.getElementById(id + '-bar');
+    const pct = () => document.getElementById(id + '-pct');
+
+    log('STATUS Downloading ' + remotePath + ' ...', 'log-status');
+
+    try {
+      const res = await fetch('/ssh/download', {
+        method: 'POST', body: remotePath,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+
+      if (!res.ok) {
+        const msg = await res.text();
+        bar().classList.add('error');
+        pct().textContent = 'ERR';
+        log('ERROR Download failed: ' + msg, 'log-error');
+        return;
+      }
+
+      const total  = parseInt(res.headers.get('Content-Length') || '0', 10);
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+
+      // Stream body, updating progress bar as chunks arrive
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total > 0) {
+          const p = Math.round(received / total * 100);
+          bar().style.width = p + '%';
+          pct().textContent = p + '%';
+        } else {
+          // Unknown size — show bytes received instead
+          bar().style.width = '60%';   // indeterminate pulse
+          pct().textContent = humanSize(received);
+        }
+      }
+
+      // Reassemble and trigger save dialog
+      const blob     = new Blob(chunks);
+      const cd       = res.headers.get('Content-Disposition') || '';
+      const match    = cd.match(/filename="?([^"]+)"?/);
+      const saveName = match ? match[1] : filename;
+
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = saveName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      bar().style.width = '100%';
+      bar().classList.add('done');
+      pct().textContent = '100%';
+      log('OK Downloaded ' + saveName + ' (' + humanSize(blob.size) + ')', 'log-ok');
+    } catch (e) {
+      bar().classList.add('error');
+      pct().textContent = 'ERR';
+      log('ERROR Download failed: ' + e.message, 'log-error');
+    } finally {
+      setTimeout(() => {
+        row.remove();
+        if (!queue.children.length) queue.classList.remove('visible');
+      }, 2500);
+    }
+  }
+
+  function humanSize(bytes) {
+    if (bytes < 1024)               return bytes + ' B';
+    if (bytes < 1024 * 1024)        return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  }
+
+  // ---- SSH ----
+  let currentAuthTab = 'key';
+
+  function switchAuthTab(tab, btn) {
+    currentAuthTab = tab;
+    document.querySelectorAll('.auth-section').forEach(el => el.classList.remove('active'));
+    document.getElementById('auth-' + tab).classList.add('active');
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  async function sshConnect() {
+    const host     = document.getElementById('ssh-host').value.trim();
+    const user     = document.getElementById('ssh-user').value.trim();
+    const port     = document.getElementById('ssh-port').value.trim() || '22';
+    const key      = document.getElementById('ssh-key').value.trim();
+    const password = document.getElementById('ssh-password').value;
+
+    if (!host) { log('ERROR SSH host is required', 'log-error'); return; }
+
+    const params = new URLSearchParams({ host, port, user, auth: currentAuthTab });
+    if (currentAuthTab === 'key')      params.set('key', key);
+    if (currentAuthTab === 'password') params.set('password', password);
+
+    document.getElementById('ssh-status').textContent = 'Connecting...';
+    document.getElementById('ssh-status').style.color = 'var(--muted)';
+
+    try {
+      await fetch('/ssh/connect', { method: 'POST', body: params.toString(),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    } catch (e) {
+      log('ERROR SSH connect request failed: ' + e.message, 'log-error');
+    }
+  }
+
+  async function sshExec() {
+    const cmd = document.getElementById('ssh-cmd').value.trim();
+    if (!cmd) return;
+    try {
+      const res = await fetch('/ssh/exec', { method: 'POST', body: cmd,
+        headers: { 'Content-Type': 'text/plain' } });
+      if (!res.ok) log('ERROR ' + await res.text(), 'log-error');
+    } catch (e) {
+      log('ERROR SSH exec request failed: ' + e.message, 'log-error');
+    }
+  }
+
+  // Update SSH status indicator from SSE messages
+  const origOnMessage = sse.onmessage;
+  sse.onmessage = (e) => {
+    origOnMessage(e);
+    const msg = e.data;
+    const sshStatus = document.getElementById('ssh-status');
+    if (msg.includes('SSH connected')) {
+      sshStatus.textContent = msg.replace('STATUS ', '');
+      sshStatus.style.color = 'var(--success)';
+      fbNavigate('~');
+      // Sync AI context object
+      ssh.host = document.getElementById('ssh-host').value.trim();
+      ssh.user = document.getElementById('ssh-user').value.trim();
+      ssh.port = parseInt(document.getElementById('ssh-port').value) || 22;
+    } else if (msg.includes('SSH connection failed')) {
+      sshStatus.textContent = 'Connection failed';
+      sshStatus.style.color = 'var(--danger)';
+      ssh.host = null;
+    }
+
+    if (msg.startsWith('OK UPLOAD_DONE')) {
+      document.getElementById('upload-progress-wrap').style.display = 'none';
+    }
+  };
+</script>
+</body>
+</html>
